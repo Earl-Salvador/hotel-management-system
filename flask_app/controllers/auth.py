@@ -58,7 +58,8 @@ def login():
             flash('Invalid credentials', 'danger')
     return render_template('login.html')
 
-# -------------------- REGISTRATION (no email verification) --------------------
+# -------------------- REGISTRATION (Philippines only) --------------------
+# -------------------- REGISTRATION (Philippines only) --------------------
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -68,7 +69,6 @@ def register():
         email = request.form.get('email', '').strip()
         password = request.form.get('password')
         confirm = request.form.get('confirm_password')
-        country_code = request.form.get('country_code')
         raw_phone = request.form.get('phone', '').strip()
 
         errors = []
@@ -87,38 +87,31 @@ def register():
         if password != confirm:
             errors.append("Passwords do not match.")
 
-        # Phone number validation (country‑specific)
-        full_phone = None
-        if country_code == '+63':
-            # Philippines: expect exactly 10 digits, no prefix
-            # Inside the register POST route, replace the phone validation block with:
+        # Phone number validation (Philippines only)
+        if not raw_phone.isdigit() or len(raw_phone) != 10:
+            errors.append("Phone must be exactly 10 digits.")
+        else:
+            full_phone = f"+63{raw_phone}"
+            if has_consecutive_digits(raw_phone):
+                errors.append("Phone number cannot contain more than three identical digits in a row.")
+            if User.query.filter_by(phone=full_phone).first():
+                errors.append("Phone number already registered.")
 
-# Phone number validation (Philippines only)
-            if not raw_phone.isdigit() or len(raw_phone) != 10:
-                errors.append("Phone must be exactly 10 digits.")
-            else:
-                full_phone = f"+63{raw_phone}"
-                if has_consecutive_digits(raw_phone):
-                    errors.append("Phone number cannot contain more than three identical digits in a row.")
-                if User.query.filter_by(phone=full_phone).first():
-                    errors.append("Phone number already registered.")
-
-        if not country_code:
-            errors.append("Please select a country code.")
+        # WALA NG COUNTRY CODE VALIDATION
 
         if errors:
             for err in errors:
                 flash(err, 'danger')
             return render_template('register.html',
                                    first_name=first_name, last_name=last_name,
-                                   email=email, phone=raw_phone, country_code=country_code)
+                                   email=email, phone=raw_phone)
 
         # Create user
         user = User(
             name=full_name,
             email=email,
             password=generate_password_hash(password),
-            country_code=country_code,
+            country_code="+63",
             phone=full_phone,
             role='guest'
         )
@@ -129,17 +122,6 @@ def register():
         return redirect(url_for('auth.login'))
 
     return render_template('register.html')
-
-# -------------------- EMAIL VERIFICATION (deprecated but kept for reference) --------------------
-@bp.route('/verify-email', methods=['GET', 'POST'])
-def verify_email():
-    # ... (unchanged, keep as is) ...
-    pass
-
-@bp.route('/resend-code')
-def resend_code():
-    # ... (unchanged) ...
-    pass
 
 # -------------------- LOGOUT --------------------
 @bp.route('/logout', methods=['GET', 'POST'])
@@ -162,7 +144,6 @@ def forgot_password():
 
         user = User.query.filter_by(email=email).first()
         if not user:
-            # For security, don't reveal whether email exists
             flash('If that email is registered, you will receive a reset link.', 'info')
             return redirect(url_for('auth.login'))
 
@@ -221,6 +202,7 @@ def reset_password(token):
             return redirect(url_for('auth.forgot_password'))
 
     return render_template('reset_password.html', token=token)
+
 # -------------------- AJAX ENDPOINTS --------------------
 @bp.route('/check-email')
 def check_email():
@@ -235,17 +217,5 @@ def check_phone():
     phone = request.args.get('phone', '').strip()
     if not phone:
         return jsonify({'exists': False})
-    # For PH numbers, we compare the full number (with +63)
-    # The frontend should send the full number; we'll compare as is.
     user = User.query.filter_by(phone=phone).first()
     return jsonify({'exists': user is not None})
-
-@bp.route('/verification-remaining')
-def verification_remaining():
-    # ... (unchanged) ...
-    pass
-
-@bp.route('/test-email')
-def test_email():
-    # ... (unchanged) ...
-    pass
