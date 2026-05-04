@@ -17,4 +17,5 @@ instance/
 .vscode/
 .idea/
 .DS_Store
-Thumbs.db
+Thumbs.db*.class
+java_receipt_sever/*.class
