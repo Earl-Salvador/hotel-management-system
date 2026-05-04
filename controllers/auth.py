@@ -32,36 +32,6 @@ def validate_password(password):
         return False
     return True
 
-# Phone validation rules per country
-PHONE_RULES = {
-    '+63': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'},
-    '+1': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'},
-    '+44': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'},
-    '+61': {'min': 9, 'max': 9, 'regex': r'^\d{9}$'},
-    '+86': {'min': 11, 'max': 11, 'regex': r'^\d{11}$'},
-    '+81': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'},
-    '+82': {'min': 9, 'max': 10, 'regex': r'^\d{9,10}$'},
-    '+49': {'min': 10, 'max': 11, 'regex': r'^\d{10,11}$'},
-    '+33': {'min': 9, 'max': 9, 'regex': r'^\d{9}$'},
-    '+39': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'}
-}
-
-def validate_phone_by_country(phone, country_code):
-    """Validate phone number based on country code."""
-    if not phone or not phone.isdigit():
-        return False, "Phone number must contain only digits."
-    
-    rules = PHONE_RULES.get(country_code, {'min': 5, 'max': 15})
-    if len(phone) < rules['min']:
-        return False, f"Phone number must be at least {rules['min']} digits."
-    if len(phone) > rules['max']:
-        return False, f"Phone number cannot exceed {rules['max']} digits."
-    
-    if 'regex' in rules and not re.match(rules['regex'], phone):
-        return False, f"Invalid phone number format for selected country."
-    
-    return True, ""
-
 # -------------------- LOGIN --------------------
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
@@ -84,7 +54,7 @@ def login():
             flash('Invalid credentials', 'danger')
     return render_template('login.html')
 
-# -------------------- REGISTRATION (with link verification) --------------------
+# -------------------- REGISTRATION --------------------
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -94,12 +64,10 @@ def register():
         email = request.form.get('email', '').strip()
         password = request.form.get('password')
         confirm = request.form.get('confirm_password')
-        country_code = request.form.get('country_code', '+63')
-        raw_phone = request.form.get('phone', '').strip()
+        phone = request.form.get('phone', '').strip()
 
         errors = []
 
-        # Name validation
         if not validate_name(first_name):
             errors.append("First name must be 2-50 letters, spaces, hyphens, apostrophes.")
         if not validate_name(last_name):
@@ -112,25 +80,15 @@ def register():
             errors.append("Password must be at least 8 characters with one uppercase, one lowercase, and one number.")
         if password != confirm:
             errors.append("Passwords do not match.")
-
-        # Phone number validation based on country
-        if not raw_phone:
-            errors.append("Phone number is required.")
-        else:
-            is_valid, phone_error = validate_phone_by_country(raw_phone, country_code)
-            if not is_valid:
-                errors.append(phone_error)
-            else:
-                full_phone = f"{country_code}{raw_phone}"
-                if User.query.filter_by(phone=full_phone).first():
-                    errors.append("Phone number already registered.")
+        if not phone or not phone.isdigit() or len(phone) != 11:
+            errors.append("Phone must be exactly 11 digits.")
 
         if errors:
             for err in errors:
                 flash(err, 'danger')
             return render_template('register.html',
                                    first_name=first_name, last_name=last_name,
-                                   email=email, phone=raw_phone, country_code=country_code)
+                                   email=email, phone=phone)
 
         # Store registration data in session
         session['reg_data'] = {
@@ -139,35 +97,33 @@ def register():
             'full_name': full_name,
             'email': email,
             'password_hash': generate_password_hash(password),
-            'country_code': country_code,
-            'phone': f"{country_code}{raw_phone}"
+            'phone': phone
         }
 
-        # Send verification email with link
+        # Send verification email
         try:
-            send_verification_email(email)
-            flash('Verification link sent to your email. Please check your inbox.', 'info')
-            return redirect(url_for('auth.verify_email_page'))
+            if send_verification_email(email):
+                flash('Verification link sent to your email. Please check your inbox.', 'info')
+                return redirect(url_for('auth.verify_email_page'))
+            else:
+                flash('Unable to send verification email. Please try again.', 'danger')
+                return render_template('register.html', first_name=first_name, last_name=last_name, email=email, phone=phone)
         except Exception as e:
-            print(f"Error sending email: {e}")
-            flash('Unable to send verification email. Please try again later.', 'danger')
-            return render_template('register.html',
-                                   first_name=first_name, last_name=last_name,
-                                   email=email, phone=raw_phone, country_code=country_code)
+            print(f"Error: {e}")
+            flash('Unable to send verification email. Please try again.', 'danger')
+            return render_template('register.html', first_name=first_name, last_name=last_name, email=email, phone=phone)
 
     return render_template('register.html')
 
-# -------------------- LINK VERIFICATION --------------------
+# -------------------- EMAIL VERIFICATION --------------------
 @bp.route('/verify-email/<token>')
 def verify_email(token):
-    """Verify email using link."""
     verification = EmailVerification.query.filter_by(token=token).first()
     
     if not verification or verification.is_expired():
         flash('The verification link is invalid or has expired.', 'danger')
         return redirect(url_for('auth.register'))
     
-    # Get registration data from session
     reg_data = session.get('reg_data')
     if not reg_data or reg_data.get('email') != verification.email:
         flash('Registration session expired. Please register again.', 'danger')
@@ -178,7 +134,6 @@ def verify_email(token):
         name=reg_data['full_name'],
         email=verification.email,
         password=reg_data['password_hash'],
-        country_code=reg_data['country_code'],
         phone=reg_data['phone'],
         role='guest'
     )
@@ -186,24 +141,14 @@ def verify_email(token):
     db.session.delete(verification)
     db.session.commit()
     
-    # Clear session data
     session.pop('reg_data', None)
-    
-    # Auto-login after verification
     login_user(user)
     flash('Email verified! Registration successful. Welcome to ROOMIO!', 'success')
     
-    # Redirect to appropriate dashboard
-    if user.role == 'admin':
-        return redirect(url_for('dashboard.admin_dashboard'))
-    elif user.role == 'staff':
-        return redirect(url_for('dashboard.staff_dashboard'))
-    else:
-        return redirect(url_for('dashboard.guest_dashboard'))
+    return redirect(url_for('dashboard.guest_dashboard'))
 
 @bp.route('/verify-email-page')
 def verify_email_page():
-    """Show waiting page for email verification."""
     return render_template('verify_email.html')
 
 @bp.route('/resend-verification')
@@ -213,8 +158,10 @@ def resend_verification():
         return redirect(url_for('auth.register'))
     
     email = session['reg_data']['email']
-    send_verification_email(email)
-    flash('A new verification link has been sent to your email.', 'success')
+    if send_verification_email(email):
+        flash('A new verification link has been sent to your email.', 'success')
+    else:
+        flash('Unable to send verification email. Please try again.', 'danger')
     return redirect(url_for('auth.verify_email_page'))
 
 # -------------------- LOGOUT --------------------
@@ -227,7 +174,7 @@ def logout():
     flash('You have been logged out.', 'success')
     return redirect(url_for('index'))
 
-# -------------------- PASSWORD RESET (Link-based) --------------------
+# -------------------- PASSWORD RESET --------------------
 @bp.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
@@ -239,18 +186,12 @@ def forgot_password():
 
         user = User.query.filter_by(email=email).first()
         
-        # For security, don't reveal if email exists
         if not user:
             flash('If that email is registered, you will receive a reset link.', 'info')
             return redirect(url_for('auth.login'))
 
-        # Generate unique token
         token = secrets.token_urlsafe(32)
-        
-        # Delete any existing reset tokens for this email
         PasswordReset.query.filter_by(email=email).delete()
-        
-        # Save new token
         db.session.add(PasswordReset(email=email, token=token))
         db.session.commit()
 
@@ -267,10 +208,8 @@ def forgot_password():
 
 @bp.route('/reset-password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
-    """Verify token and allow user to set new password."""
     reset = PasswordReset.query.filter_by(token=token).first()
     
-    # Check if token exists and is not expired
     if not reset or reset.is_expired():
         flash('The password reset link is invalid or has expired.', 'danger')
         return redirect(url_for('auth.forgot_password'))
@@ -290,27 +229,15 @@ def reset_password(token):
                 flash(err, 'danger')
             return render_template('reset_password.html', token=token)
 
-        # Update user's password
         user = User.query.filter_by(email=reset.email).first()
         if user:
             user.password = generate_password_hash(password)
             db.session.commit()
-            
-            # Delete the used token
             db.session.delete(reset)
             db.session.commit()
-            
-            # Auto-login after password reset
             login_user(user)
             flash('Your password has been updated. You are now logged in!', 'success')
-            
-            # Redirect to appropriate dashboard
-            if user.role == 'admin':
-                return redirect(url_for('dashboard.admin_dashboard'))
-            elif user.role == 'staff':
-                return redirect(url_for('dashboard.staff_dashboard'))
-            else:
-                return redirect(url_for('dashboard.guest_dashboard'))
+            return redirect(url_for('dashboard.guest_dashboard'))
         else:
             flash('User not found. Please contact support.', 'danger')
             return redirect(url_for('auth.forgot_password'))
@@ -333,8 +260,3 @@ def check_phone():
         return jsonify({'exists': False})
     user = User.query.filter_by(phone=phone).first()
     return jsonify({'exists': user is not None})
-
-@bp.route('/verification-remaining')
-def verification_remaining():
-    # Not used for link-based verification, kept for compatibility
-    return jsonify({'remaining': 0, 'expired': True})

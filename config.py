@@ -15,14 +15,14 @@ class Config:
             }
         }
     
-    # Email Configuration
+      # Email Configuration - GMAIL SMTP
     MAIL_SERVER = 'smtp.gmail.com'
     MAIL_PORT = 587
     MAIL_USE_TLS = True
     MAIL_USE_SSL = False
-    MAIL_USERNAME = 'salvadorearl8@gmail.com'  # Iyong email
-    MAIL_PASSWORD = 'vrvczfhnxmimnwmu'  # App password (hindi regular password)
-    MAIL_DEFAULT_SENDER = 'salvadorearl8@gmail.com'
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME', 'salvadorearl8@gmail.com')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'vrvczfhnxmimnwmu')  # Ilagay ang App Password dito
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_USERNAME', 'salvadorearl8@gmail.com')
     
     # PayMongo Configuration
     PAYMONGO_SECRET_KEY = os.environ.get('PAYMONGO_SECRET_KEY', '')
