@@ -28,13 +28,35 @@ def validate_password(password):
         return False
     return True
 
-def has_consecutive_digits(number, max_repeat=3):
-    """Check if the number contains more than max_repeat identical digits in a row."""
-    digits = ''.join(filter(str.isdigit, number))
-    for i in range(len(digits) - max_repeat):
-        if len(set(digits[i:i+max_repeat+1])) == 1:
-            return True
-    return False
+# Phone validation rules per country
+PHONE_RULES = {
+    '+63': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'},
+    '+1': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'},
+    '+44': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'},
+    '+61': {'min': 9, 'max': 9, 'regex': r'^\d{9}$'},
+    '+86': {'min': 11, 'max': 11, 'regex': r'^\d{11}$'},
+    '+81': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'},
+    '+82': {'min': 9, 'max': 10, 'regex': r'^\d{9,10}$'},
+    '+49': {'min': 10, 'max': 11, 'regex': r'^\d{10,11}$'},
+    '+33': {'min': 9, 'max': 9, 'regex': r'^\d{9}$'},
+    '+39': {'min': 10, 'max': 10, 'regex': r'^\d{10}$'}
+}
+
+def validate_phone_by_country(phone, country_code):
+    """Validate phone number based on country code."""
+    if not phone or not phone.isdigit():
+        return False, "Phone number must contain only digits."
+    
+    rules = PHONE_RULES.get(country_code, {'min': 5, 'max': 15})
+    if len(phone) < rules['min']:
+        return False, f"Phone number must be at least {rules['min']} digits."
+    if len(phone) > rules['max']:
+        return False, f"Phone number cannot exceed {rules['max']} digits."
+    
+    if 'regex' in rules and not re.match(rules['regex'], phone):
+        return False, f"Invalid phone number format for selected country."
+    
+    return True, ""
 
 # -------------------- LOGIN --------------------
 @bp.route('/login', methods=['GET', 'POST'])
@@ -58,7 +80,7 @@ def login():
             flash('Invalid credentials', 'danger')
     return render_template('login.html')
 
-# -------------------- REGISTRATION (Simplified - No Country Code) --------------------
+# -------------------- REGISTRATION (with auto-login) --------------------
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -68,6 +90,7 @@ def register():
         email = request.form.get('email', '').strip()
         password = request.form.get('password')
         confirm = request.form.get('confirm_password')
+        country_code = request.form.get('country_code', '+63')
         raw_phone = request.form.get('phone', '').strip()
 
         errors = []
@@ -86,37 +109,52 @@ def register():
         if password != confirm:
             errors.append("Passwords do not match.")
 
-        # Phone number validation (simplified - 11 digits)
+        # Phone number validation based on country
         if not raw_phone:
             errors.append("Phone number is required.")
-        elif not raw_phone.isdigit():
-            errors.append("Phone number must contain only digits.")
-        elif len(raw_phone) != 11:
-            errors.append("Phone number must be exactly 11 digits.")
-        elif User.query.filter_by(phone=raw_phone).first():
-            errors.append("Phone number already registered.")
+        else:
+            is_valid, phone_error = validate_phone_by_country(raw_phone, country_code)
+            if not is_valid:
+                errors.append(phone_error)
+            else:
+                full_phone = f"{country_code}{raw_phone}"
+                if User.query.filter_by(phone=full_phone).first():
+                    errors.append("Phone number already registered.")
+
+        if not country_code:
+            errors.append("Please select a country code.")
 
         if errors:
             for err in errors:
                 flash(err, 'danger')
             return render_template('register.html',
                                    first_name=first_name, last_name=last_name,
-                                   email=email, phone=raw_phone)
+                                   email=email, phone=raw_phone, country_code=country_code)
 
         # Create user
+        full_phone = f"{country_code}{raw_phone}"
         user = User(
             name=full_name,
             email=email,
             password=generate_password_hash(password),
-            country_code='+63',
-            phone=raw_phone,
+            country_code=country_code,
+            phone=full_phone,
             role='guest'
         )
         db.session.add(user)
         db.session.commit()
 
-        flash('Registration successful! Please log in.', 'success')
-        return redirect(url_for('auth.login'))
+        # Auto-login after registration
+        login_user(user)
+        flash('Registration successful! Welcome to ROOMIO!', 'success')
+        
+        # Redirect to appropriate dashboard based on role
+        if user.role == 'admin':
+            return redirect(url_for('dashboard.admin_dashboard'))
+        elif user.role == 'staff':
+            return redirect(url_for('dashboard.staff_dashboard'))
+        else:
+            return redirect(url_for('dashboard.guest_dashboard'))
 
     return render_template('register.html')
 
