@@ -143,7 +143,7 @@ class Coupon(db.Model):
     discount_percent = db.Column(db.Numeric(5,2), nullable=False)
     valid_until = db.Column(db.Date, nullable=False)
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # created_at = db.Column(db.DateTime, default=datetime.utcnow)  # I-comment out muna
 
 class Receipt(db.Model):
     __tablename__ = 'receipts'
