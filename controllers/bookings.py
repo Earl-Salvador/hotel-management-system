@@ -1,5 +1,11 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, make_response, session
 from flask_login import login_required, current_user, login_user
+import sys
+import os
+
+# Add parent directory to path para mahanap ang models
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from models import db, Booking, Room, Coupon, User, Receipt
 from datetime import datetime
 from werkzeug.security import generate_password_hash

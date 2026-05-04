@@ -7,6 +7,8 @@ from utils.email_utils import send_verification_email, send_password_reset_email
 import secrets
 from datetime import datetime, timedelta
 import re
+import random
+import string
 
 bp = Blueprint('auth', __name__)
 
@@ -27,6 +29,9 @@ def validate_password(password):
     if not re.search(r"\d", password):
         return False
     return True
+
+def generate_otp():
+    return ''.join(random.choices(string.digits, k=6))
 
 # Phone validation rules per country
 PHONE_RULES = {
@@ -80,7 +85,7 @@ def login():
             flash('Invalid credentials', 'danger')
     return render_template('login.html')
 
-# -------------------- REGISTRATION (with auto-login) --------------------
+# -------------------- REGISTRATION (with OTP email verification) --------------------
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -121,9 +126,6 @@ def register():
                 if User.query.filter_by(phone=full_phone).first():
                     errors.append("Phone number already registered.")
 
-        if not country_code:
-            errors.append("Please select a country code.")
-
         if errors:
             for err in errors:
                 flash(err, 'danger')
@@ -131,32 +133,85 @@ def register():
                                    first_name=first_name, last_name=last_name,
                                    email=email, phone=raw_phone, country_code=country_code)
 
-        # Create user
-        full_phone = f"{country_code}{raw_phone}"
-        user = User(
-            name=full_name,
-            email=email,
-            password=generate_password_hash(password),
-            country_code=country_code,
-            phone=full_phone,
-            role='guest'
-        )
-        db.session.add(user)
-        db.session.commit()
+        # Store registration data in session for OTP verification
+        session['reg_data'] = {
+            'first_name': first_name,
+            'last_name': last_name,
+            'full_name': full_name,
+            'email': email,
+            'password_hash': generate_password_hash(password),
+            'country_code': country_code,
+            'phone': f"{country_code}{raw_phone}"
+        }
 
-        # Auto-login after registration
-        login_user(user)
-        flash('Registration successful! Welcome to ROOMIO!', 'success')
-        
-        # Redirect to appropriate dashboard based on role
-        if user.role == 'admin':
-            return redirect(url_for('dashboard.admin_dashboard'))
-        elif user.role == 'staff':
-            return redirect(url_for('dashboard.staff_dashboard'))
-        else:
-            return redirect(url_for('dashboard.guest_dashboard'))
+        # Send OTP verification email
+        try:
+            send_verification_email(email)
+            flash('Verification code sent to your email. Please enter it to complete registration.', 'info')
+            return redirect(url_for('auth.verify_email'))
+        except Exception as e:
+            print(f"Error sending email: {e}")
+            flash('Error sending verification email. Please try again.', 'danger')
+            return render_template('register.html',
+                                   first_name=first_name, last_name=last_name,
+                                   email=email, phone=raw_phone, country_code=country_code)
 
     return render_template('register.html')
+
+# -------------------- EMAIL VERIFICATION --------------------
+@bp.route('/verify-email', methods=['GET', 'POST'])
+def verify_email():
+    if 'reg_data' not in session:
+        flash('Registration session expired. Please register again.', 'danger')
+        return redirect(url_for('auth.register'))
+
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+        email = session['reg_data']['email']
+        verification = EmailVerification.query.filter_by(email=email).first()
+        
+        if verification and verification.code == code and not verification.is_expired():
+            # Create user
+            user = User(
+                name=session['reg_data']['full_name'],
+                email=email,
+                password=session['reg_data']['password_hash'],
+                country_code=session['reg_data']['country_code'],
+                phone=session['reg_data']['phone'],
+                role='guest'
+            )
+            db.session.add(user)
+            db.session.delete(verification)
+            db.session.commit()
+            
+            # Clear session data
+            session.pop('reg_data', None)
+            
+            # Auto-login after verification
+            login_user(user)
+            flash('Registration successful! Welcome to ROOMIO!', 'success')
+            
+            # Redirect to appropriate dashboard
+            if user.role == 'admin':
+                return redirect(url_for('dashboard.admin_dashboard'))
+            elif user.role == 'staff':
+                return redirect(url_for('dashboard.staff_dashboard'))
+            else:
+                return redirect(url_for('dashboard.guest_dashboard'))
+        else:
+            flash('Invalid or expired verification code. Please try again.', 'danger')
+            return render_template('verify_email.html')
+
+    return render_template('verify_email.html')
+
+@bp.route('/resend-code')
+def resend_code():
+    if 'reg_data' not in session:
+        return redirect(url_for('auth.register'))
+    email = session['reg_data']['email']
+    send_verification_email(email)
+    flash('A new verification code has been sent to your email.', 'info')
+    return redirect(url_for('auth.verify_email'))
 
 # -------------------- LOGOUT --------------------
 @bp.route('/logout', methods=['GET', 'POST'])
@@ -254,3 +309,15 @@ def check_phone():
         return jsonify({'exists': False})
     user = User.query.filter_by(phone=phone).first()
     return jsonify({'exists': user is not None})
+
+@bp.route('/verification-remaining')
+def verification_remaining():
+    if 'reg_data' not in session:
+        return jsonify({'error': 'No registration session'}), 400
+    email = session['reg_data']['email']
+    verification = EmailVerification.query.filter_by(email=email).first()
+    if not verification:
+        return jsonify({'remaining': 0, 'expired': True})
+    elapsed = (datetime.utcnow() - verification.created_at).total_seconds()
+    remaining = max(0, 120 - int(elapsed))
+    return jsonify({'remaining': remaining, 'expired': remaining <= 0})
