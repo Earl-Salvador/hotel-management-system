@@ -1,140 +1,129 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, jsonify
 from flask_login import login_required, current_user
 from models import db, Booking, Payment
 from datetime import datetime
 import requests
-import json
+import base64
+import hmac
+import hashlib
 
 bp = Blueprint('payments', __name__, url_prefix='/payment')
+
+def get_paymongo_headers():
+    api_key = current_app.config.get('PAYMONGO_SECRET_KEY')
+    auth_str = f"{api_key}:"
+    auth_bytes = auth_str.encode('ascii')
+    base64_auth = base64.b64encode(auth_bytes).decode('ascii')
+    
+    return {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "authorization": f"Basic {base64_auth}"
+    }
 
 @bp.route('/pay/<int:booking_id>', methods=['GET', 'POST'])
 @login_required
 def pay(booking_id):
     booking = Booking.query.get_or_404(booking_id)
+    
+    # Siguraduhin na ang may-ari ng booking ang nagbabayad
     if booking.user_id != current_user.id:
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
-    
+
     if request.method == 'POST':
-        # Kunin ang payment method mula sa form (kung gusto mo pa rin ito)
-        payment_method = request.form.get('payment_method', 'paymongo')
+        # Kunin ang piniling payment method mula sa form (hal. 'gcash', 'card', etc.)
+        # Pero gagamit tayo ng PayMongo Links para sa automation
+        amount_in_cents = int(booking.total_amount * 100)
+        url = "https://api.paymongo.com/v1/links"
         
-        # I-convert ang amount sa cents (kailangan ng PayMongo)
-        amount = int(booking.total_amount * 100)
-        
-        # PayMongo API endpoint
-        url = "https://api.paymongo.com/v1/checkout_sessions"
-        
-        # Basic authentication gamit ang secret key
-        auth = (current_app.config['PAYMONGO_SECRET_KEY'], '')
-        
-        # Payload para sa checkout session
         payload = {
             "data": {
                 "attributes": {
-                    "send_email_receipt": False,
-                    "show_description": True,
-                    "show_line_items": True,
-                    "cancel_url": url_for('payments.payment_cancelled', booking_id=booking.id, _external=True),
-                    "success_url": url_for('payments.payment_success', booking_id=booking.id, _external=True),
-                    "description": f"Booking #{booking.id} - {booking.room.room_type.name}",
-                    "line_items": [
-                        {
-                            "currency": "PHP",
-                            "amount": amount,
-                            "description": f"Room {booking.room.room_number} - {booking.room.room_type.name}",
-                            "name": "Hotel Booking",
-                            "quantity": booking.total_nights,
-                            "images": []
-                        }
-                    ],
-                    "payment_method_types": ["gcash", "card", "paymaya"],
-                    "metadata": {
-                        "booking_id": booking.id
-                    }
+                    "amount": amount_in_cents,
+                    "description": f"ROOMIO Booking #{booking.id}",
+                    "remarks": f"Room {booking.room.room_number}"
                 }
             }
         }
-        
+
         try:
-            # Tawagin ang PayMongo API para gumawa ng checkout session
-            response = requests.post(url, json=payload, auth=auth)
-            result = response.json()
-            
-            if response.status_code == 201:
-                # Kunin ang checkout URL mula sa response
-                checkout_url = result['data']['attributes']['checkout_url']
-                
-                # I-save ang checkout session ID sa session (opsyonal)
-                session['checkout_session_id'] = result['data']['id']
-                session['pending_booking_id'] = booking.id
-                
-                # I-redirect ang user sa PayMongo checkout page
-                return redirect(checkout_url)
-            else:
-                error_msg = result.get('errors', [{}])[0].get('detail', 'Unknown error')
-                flash(f'Payment initialization failed: {error_msg}', 'danger')
-                return render_template('payment/pay.html', booking=booking)
-                
-        except Exception as e:
-            flash(f'Payment initialization failed: {str(e)}', 'danger')
-            return render_template('payment/pay.html', booking=booking)
-    
-    # GET request - ipakita ang payment page
-    return render_template('payment/pay.html', booking=booking)
+            response = requests.post(url, json=payload, headers=get_paymongo_headers())
+            res_data = response.json()
 
+            if response.status_code == 200:
+                checkout_url = res_data['data']['attributes']['checkout_url']
+                link_id = res_data['data']['id']
 
-@bp.route('/payment-success/<int:booking_id>')
-@login_required
-def payment_success(booking_id):
-    """Page na pagkatapos ng matagumpay na payment"""
-    booking = Booking.query.get_or_404(booking_id)
-    if booking.user_id != current_user.id and current_user.role != 'admin':
-        flash('Unauthorized', 'danger')
-        return redirect(url_for('index'))
-    
-    flash('Payment successful! Your booking is pending admin approval.', 'success')
-    return render_template('payment/success.html', booking=booking)
-
-
-@bp.route('/payment-cancelled/<int:booking_id>')
-@login_required
-def payment_cancelled(booking_id):
-    """Page kapag nag-cancel ang user ng payment"""
-    booking = Booking.query.get_or_404(booking_id)
-    flash('Payment was cancelled. You can try again.', 'warning')
-    return render_template('payment/pay.html', booking=booking)
-
-
-@bp.route('/webhook', methods=['POST'])
-def paymongo_webhook():
-    """Webhook na tatawagin ng PayMongo pagkatapos ng successful payment"""
-    data = request.get_json()
-    
-    # I-verify kung ito ay checkout_session.payment_success event
-    event_type = data.get('data', {}).get('attributes', {}).get('type')
-    
-    if event_type == 'checkout_session.payment_success':
-        # Kunin ang metadata para makuha ang booking_id
-        metadata = data.get('data', {}).get('attributes', {}).get('data', {}).get('attributes', {}).get('metadata', {})
-        booking_id = metadata.get('booking_id')
-        
-        if booking_id:
-            booking = Booking.query.get(booking_id)
-            if booking:
-                # I-update ang payment status
+                # I-save muna ang payment record bilang 'pending'
+                # Ginamit ang link_id bilang transaction_id para sa tracking sa webhook
                 payment = Payment(
                     booking_id=booking.id,
                     amount=booking.total_amount,
-                    payment_method='paymongo',
-                    transaction_id=data.get('data', {}).get('id'),
-                    status='completed',
-                    paid_at=datetime.utcnow()
+                    payment_method="paymongo_link",
+                    transaction_id=link_id,
+                    status='pending',
+                    paid_at=None
                 )
                 db.session.add(payment)
-                # Huwag i-confirm agad ang booking - hintayin ang admin approval
                 db.session.commit()
-                
-                print(f"Payment received for booking #{booking_id}")
-    
-    return {'status': 'ok'}, 200
+
+                # I-redirect ang user sa PayMongo Checkout page
+                return redirect(checkout_url)
+            else:
+                flash("Failed to create payment link. Please try again.", "danger")
+        except Exception as e:
+            flash(f"Error connecting to payment gateway: {str(e)}", "danger")
+
+    return render_template('payment/pay.html', booking=booking)
+
+# ---------------------------------------------------------
+# WEBHOOK ROUTE (Dito tatawag si PayMongo kapag tapos na ang bayad)
+# ---------------------------------------------------------
+@bp.route('/webhook', methods=['POST'])
+def webhook():
+    payload = request.data
+    signature_header = request.headers.get('Paymongo-Signature')
+    webhook_secret = current_app.config.get('PAYMONGO_WEBHOOK_SECRET')
+
+    # Verification ng signature para sa security
+    if signature_header and webhook_secret:
+        labels = signature_header.split(',')
+        timestamp = labels[0].split('=')[1]
+        signature = labels[1].split('=')[1]
+        base_string = f"{timestamp}.{payload.decode('utf-8')}"
+        
+        hashed = hmac.new(
+            webhook_secret.encode('utf-8'),
+            base_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+
+        if hashed != signature:
+            return jsonify({'error': 'Invalid signature'}), 401
+
+    data = request.json
+    event_type = data['data']['attributes']['type']
+
+    # Kapag success ang bayad sa PayMongo link
+    if event_type == 'link.payment.paid':
+        link_id = data['data']['attributes']['data']['attributes']['link_id']
+        
+        # Hanapin ang payment record gamit ang transaction_id (link_id)
+        payment = Payment.query.filter_by(transaction_id=link_id).first()
+        
+        if payment:
+            # I-update ang payment status
+            payment.status = 'completed'
+            payment.paid_at = datetime.utcnow()
+            
+            # PINALITAN DITO: Ang booking.status ay HINDI magiging 'confirmed' agad.
+            # Mananatili itong 'pending' para sa admin approval (base sa hiningi mo).
+            booking = Booking.query.get(payment.booking_id)
+            if booking:
+                booking.status = 'pending' # Explicitly set to pending/stays pending
+            
+            db.session.commit()
+            return jsonify({'success': True}), 200
+
+    return jsonify({'message': 'Event ignored'}), 200
