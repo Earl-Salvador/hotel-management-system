@@ -97,6 +97,23 @@ def register():
             if User.query.filter_by(phone=full_phone).first():
                 errors.append("Phone number already registered.")
 
+        # Sa auth.py, sa register function, idagdag:
+        country_code = request.form.get('country_code', '+63')
+
+        # At sa phone validation:
+        if country_code == '+63':
+            if not raw_phone.isdigit() or len(raw_phone) != 10:
+                errors.append("Phone must be exactly 10 digits.")
+            else:
+                full_phone = f"+63{raw_phone}"
+                # ... rest of validation
+        else:
+            # For other countries, accept any digits
+            if not raw_phone.isdigit():
+                errors.append("Phone must contain only digits.")
+            else:
+                full_phone = f"{country_code}{raw_phone}"
+
         # WALA NG COUNTRY CODE VALIDATION
 
         if errors:
