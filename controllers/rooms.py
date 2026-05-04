@@ -1,10 +1,20 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from models import db, Room, RoomType
-import os
 from werkzeug.utils import secure_filename
 
 bp = Blueprint('rooms', __name__, url_prefix='/admin/rooms')
+
+# I-set ang tamang path para sa upload folder
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'images', 'room_types')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # -------------------- ROOM TYPES --------------------
 @bp.route('/room_types')
@@ -53,7 +63,6 @@ def delete_room_type(id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
     rt = RoomType.query.get_or_404(id)
-    # Prevent deletion if any rooms use this type
     if rt.rooms and len(rt.rooms) > 0:
         return jsonify({'success': False, 'error': 'Cannot delete room type because rooms are using it.'}), 400
     db.session.delete(rt)
@@ -74,6 +83,29 @@ def get_room_type_json(id):
         'capacity': rt.capacity
     })
 
+@bp.route('/room_types/<int:id>/upload-image', methods=['POST'])
+@login_required
+def upload_room_type_image(id):
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    rt = RoomType.query.get_or_404(id)
+    if 'image' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(f"roomtype_{id}_{file.filename}")
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
+        if rt.image_filename and os.path.exists(os.path.join(UPLOAD_FOLDER, rt.image_filename)):
+            os.remove(os.path.join(UPLOAD_FOLDER, rt.image_filename))
+        rt.image_filename = filename
+        db.session.commit()
+        return jsonify({'success': True, 'filename': filename})
+    return jsonify({'error': 'File type not allowed'}), 400
+
 # -------------------- ROOMS --------------------
 @bp.route('/rooms')
 @login_required
@@ -93,28 +125,17 @@ def create_room():
     data = request.get_json()
     if not data:
         return jsonify({'error': 'Invalid JSON'}), 400
-
     room_number = data.get('room_number')
     room_type_id = data.get('room_type_id')
     status = data.get('status', 'available')
-
     if not room_number or not room_type_id:
         return jsonify({'error': 'Room number and room type are required'}), 400
-
-    # Check for duplicate room number
     if Room.query.filter_by(room_number=room_number).first():
         return jsonify({'error': f'Room number {room_number} already exists'}), 400
-
-    # Verify room type exists
     room_type = RoomType.query.get(room_type_id)
     if not room_type:
         return jsonify({'error': 'Invalid room type'}), 400
-
-    new_room = Room(
-        room_number=room_number,
-        room_type_id=room_type_id,
-        status=status
-    )
+    new_room = Room(room_number=room_number, room_type_id=room_type_id, status=status)
     db.session.add(new_room)
     db.session.commit()
     return jsonify({'success': True, 'id': new_room.id}), 201
@@ -128,12 +149,9 @@ def update_room(id):
     data = request.get_json()
     if not data:
         return jsonify({'error': 'Invalid JSON'}), 400
-
     new_number = data.get('room_number', room.room_number)
-    # Check unique room number
     if new_number != room.room_number and Room.query.filter_by(room_number=new_number).first():
         return jsonify({'error': 'Room number already exists'}), 400
-
     room.room_number = new_number
     room.room_type_id = data.get('room_type_id', room.room_type_id)
     room.status = data.get('status', room.status)
@@ -146,7 +164,6 @@ def delete_room(id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
     room = Room.query.get_or_404(id)
-    # Check if the room has any bookings
     if room.bookings and len(room.bookings) > 0:
         return jsonify({'success': False, 'error': 'Cannot delete room because it has existing bookings.'}), 400
     db.session.delete(room)
@@ -166,34 +183,3 @@ def get_room_json(id):
         'status': room.status,
         'room_type_name': room.room_type.name if room.room_type else ''
     })
-
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'images', 'room_types')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-@bp.route('/room_types/<int:id>/upload-image', methods=['POST'])
-@login_required
-def upload_room_type_image(id):
-    if current_user.role != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 403
-    rt = RoomType.query.get_or_404(id)
-    if 'image' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    file = request.files['image']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    if file and allowed_file(file.filename):
-        filename = secure_filename(f"roomtype_{id}_{file.filename}")
-        # Ensure directory exists
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(filepath)
-        # Delete old image if exists
-        if rt.image_filename and os.path.exists(os.path.join(UPLOAD_FOLDER, rt.image_filename)):
-            os.remove(os.path.join(UPLOAD_FOLDER, rt.image_filename))
-        rt.image_filename = filename
-        db.session.commit()
-        return jsonify({'success': True, 'filename': filename})
-    return jsonify({'error': 'File type not allowed'}), 400

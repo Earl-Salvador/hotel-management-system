@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from flask import Blueprint, render_template, jsonify, redirect, url_for, flash
 from flask_login import login_required, current_user
 from models import db, Booking, Payment, Comment, User, Room
@@ -20,23 +24,18 @@ def index():
 @bp.route('/user_stats')
 @login_required
 def user_stats():
-    # Total bookings for this user (confirmed only)
     total_bookings = Booking.query.filter_by(user_id=current_user.id, status='confirmed').count()
-    # Upcoming bookings (check-in >= today, not cancelled)
     today = datetime.now().date()
     upcoming_bookings = Booking.query.filter(
         Booking.user_id == current_user.id,
         Booking.status == 'confirmed',
         Booking.check_in >= today
     ).count()
-    # Total spent (sum of completed payments for this user's bookings)
     total_spent = db.session.query(func.sum(Payment.amount)).join(Booking).filter(
-    Booking.user_id == current_user.id,
-    Payment.status == 'completed'
+        Booking.user_id == current_user.id,
+        Payment.status == 'completed'
     ).scalar() or 0.0
-    total_spent = float(total_spent)   # ensure it's a float
     reviews_given = Comment.query.filter_by(user_id=current_user.id).count()
-
     return jsonify({
         'total_bookings': total_bookings,
         'upcoming_bookings': upcoming_bookings,
@@ -47,7 +46,6 @@ def user_stats():
 @bp.route('/recent_bookings')
 @login_required
 def recent_bookings():
-    # For admin, show all recent bookings; for others, show their own
     if current_user.role == 'admin':
         bookings = Booking.query.order_by(Booking.created_at.desc()).limit(10).all()
     else:
@@ -87,7 +85,6 @@ def guest_dashboard():
     if current_user.role != 'guest':
         flash('Access denied', 'danger')
         return redirect(url_for('index'))
-    # Get all available rooms for display
     rooms = Room.query.filter_by(status='available').all()
     return render_template('dashboard/guest.html', rooms=rooms)
 
@@ -96,14 +93,10 @@ def guest_dashboard():
 def admin_stats():
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
-    
-    # Counts
     total_users = User.query.count()
     total_rooms = Room.query.count()
     total_bookings = Booking.query.filter_by(status='confirmed').count()
     total_revenue = db.session.query(func.sum(Payment.amount)).filter(Payment.status == 'completed').scalar() or 0
-    
-    # Occupancy for current month (just for a gauge)
     today = datetime.now().date()
     first_day = today.replace(day=1)
     if today.month == 12:
@@ -118,7 +111,6 @@ def admin_stats():
         Booking.check_out >= first_day
     ).scalar() or 0
     occupancy_rate = (occupied_nights / total_room_nights) * 100 if total_room_nights > 0 else 0
-    
     return jsonify({
         'total_users': total_users,
         'total_rooms': total_rooms,

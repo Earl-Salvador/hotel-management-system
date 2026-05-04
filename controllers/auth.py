@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 import re
 import random
 import string
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 bp = Blueprint('auth', __name__)
 
