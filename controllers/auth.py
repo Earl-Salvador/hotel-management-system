@@ -7,10 +7,9 @@ from utils.email_utils import send_verification_email, send_password_reset_email
 import secrets
 from datetime import datetime, timedelta
 import re
-import random
-import string
 import sys
 import os
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 bp = Blueprint('auth', __name__)
@@ -32,9 +31,6 @@ def validate_password(password):
     if not re.search(r"\d", password):
         return False
     return True
-
-def generate_otp():
-    return ''.join(random.choices(string.digits, k=6))
 
 # Phone validation rules per country
 PHONE_RULES = {
@@ -88,7 +84,7 @@ def login():
             flash('Invalid credentials', 'danger')
     return render_template('login.html')
 
-# -------------------- REGISTRATION (with OTP email verification) --------------------
+# -------------------- REGISTRATION (with link verification) --------------------
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -136,7 +132,7 @@ def register():
                                    first_name=first_name, last_name=last_name,
                                    email=email, phone=raw_phone, country_code=country_code)
 
-        # Store registration data in session for OTP verification
+        # Store registration data in session
         session['reg_data'] = {
             'first_name': first_name,
             'last_name': last_name,
@@ -147,75 +143,79 @@ def register():
             'phone': f"{country_code}{raw_phone}"
         }
 
-        # Send OTP verification email
- # Send verification email
+        # Send verification email with link
         try:
             send_verification_email(email)
             flash('Verification link sent to your email. Please check your inbox.', 'info')
-            return redirect(url_for('auth.verify_email'))
+            return redirect(url_for('auth.verify_email_page'))
         except Exception as e:
             print(f"Error sending email: {e}")
-            flash('Unable to send verification email. Please check your email address or try again later.', 'danger')
+            flash('Unable to send verification email. Please try again later.', 'danger')
             return render_template('register.html',
-                                first_name=first_name, last_name=last_name,
-                                email=email, phone=raw_phone, country_code=country_code)
+                                   first_name=first_name, last_name=last_name,
+                                   email=email, phone=raw_phone, country_code=country_code)
 
     return render_template('register.html')
 
-# -------------------- EMAIL VERIFICATION --------------------
-@bp.route('/verify-email', methods=['GET', 'POST'])
-def verify_email():
-    if 'reg_data' not in session:
+# -------------------- LINK VERIFICATION --------------------
+@bp.route('/verify-email/<token>')
+def verify_email(token):
+    """Verify email using link."""
+    verification = EmailVerification.query.filter_by(token=token).first()
+    
+    if not verification or verification.is_expired():
+        flash('The verification link is invalid or has expired.', 'danger')
+        return redirect(url_for('auth.register'))
+    
+    # Get registration data from session
+    reg_data = session.get('reg_data')
+    if not reg_data or reg_data.get('email') != verification.email:
         flash('Registration session expired. Please register again.', 'danger')
         return redirect(url_for('auth.register'))
+    
+    # Create user
+    user = User(
+        name=reg_data['full_name'],
+        email=verification.email,
+        password=reg_data['password_hash'],
+        country_code=reg_data['country_code'],
+        phone=reg_data['phone'],
+        role='guest'
+    )
+    db.session.add(user)
+    db.session.delete(verification)
+    db.session.commit()
+    
+    # Clear session data
+    session.pop('reg_data', None)
+    
+    # Auto-login after verification
+    login_user(user)
+    flash('Email verified! Registration successful. Welcome to ROOMIO!', 'success')
+    
+    # Redirect to appropriate dashboard
+    if user.role == 'admin':
+        return redirect(url_for('dashboard.admin_dashboard'))
+    elif user.role == 'staff':
+        return redirect(url_for('dashboard.staff_dashboard'))
+    else:
+        return redirect(url_for('dashboard.guest_dashboard'))
 
-    if request.method == 'POST':
-        code = request.form.get('code', '').strip()
-        email = session['reg_data']['email']
-        verification = EmailVerification.query.filter_by(email=email).first()
-        
-        if verification and verification.code == code and not verification.is_expired():
-            # Create user
-            user = User(
-                name=session['reg_data']['full_name'],
-                email=email,
-                password=session['reg_data']['password_hash'],
-                country_code=session['reg_data']['country_code'],
-                phone=session['reg_data']['phone'],
-                role='guest'
-            )
-            db.session.add(user)
-            db.session.delete(verification)
-            db.session.commit()
-            
-            # Clear session data
-            session.pop('reg_data', None)
-            
-            # Auto-login after verification
-            login_user(user)
-            flash('Registration successful! Welcome to ROOMIO!', 'success')
-            
-            # Redirect to appropriate dashboard
-            if user.role == 'admin':
-                return redirect(url_for('dashboard.admin_dashboard'))
-            elif user.role == 'staff':
-                return redirect(url_for('dashboard.staff_dashboard'))
-            else:
-                return redirect(url_for('dashboard.guest_dashboard'))
-        else:
-            flash('Invalid or expired verification code. Please try again.', 'danger')
-            return render_template('verify_email.html')
-
+@bp.route('/verify-email-page')
+def verify_email_page():
+    """Show waiting page for email verification."""
     return render_template('verify_email.html')
 
-@bp.route('/resend-code')
-def resend_code():
+@bp.route('/resend-verification')
+def resend_verification():
     if 'reg_data' not in session:
+        flash('Please register first.', 'danger')
         return redirect(url_for('auth.register'))
+    
     email = session['reg_data']['email']
     send_verification_email(email)
-    flash('A new verification code has been sent to your email.', 'info')
-    return redirect(url_for('auth.verify_email'))
+    flash('A new verification link has been sent to your email.', 'success')
+    return redirect(url_for('auth.verify_email_page'))
 
 # -------------------- LOGOUT --------------------
 @bp.route('/logout', methods=['GET', 'POST'])
@@ -227,7 +227,7 @@ def logout():
     flash('You have been logged out.', 'success')
     return redirect(url_for('index'))
 
-# -------------------- PASSWORD RESET --------------------
+# -------------------- PASSWORD RESET (Link-based) --------------------
 @bp.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
@@ -336,12 +336,5 @@ def check_phone():
 
 @bp.route('/verification-remaining')
 def verification_remaining():
-    if 'reg_data' not in session:
-        return jsonify({'error': 'No registration session'}), 400
-    email = session['reg_data']['email']
-    verification = EmailVerification.query.filter_by(email=email).first()
-    if not verification:
-        return jsonify({'remaining': 0, 'expired': True})
-    elapsed = (datetime.utcnow() - verification.created_at).total_seconds()
-    remaining = max(0, 120 - int(elapsed))
-    return jsonify({'remaining': remaining, 'expired': remaining <= 0})
+    # Not used for link-based verification, kept for compatibility
+    return jsonify({'remaining': 0, 'expired': True})
