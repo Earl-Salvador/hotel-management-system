@@ -11,19 +11,16 @@ from datetime import datetime
 from werkzeug.security import generate_password_hash
 from utils.validators import validate_name, validate_email, validate_phone
 from utils.receipt import generate_receipt
-from utils.email_utils import send_receipt_email
 
 bp = Blueprint('bookings', __name__, url_prefix='/booking')
 
-# -------------------- GUEST BOOKING (no login required) --------------------
+# -------------------- GUEST BOOKING --------------------
 @bp.route('/book', methods=['GET', 'POST'])
 def book():
-    # Update room statuses before showing form
     if request.method == 'GET':
         Room.update_all_statuses()
 
     if request.method == 'POST':
-        # Determine if user is a guest (not logged in)
         is_guest = not current_user.is_authenticated
 
         if is_guest:
@@ -32,6 +29,7 @@ def book():
             email = request.form.get('email', '').strip()
             phone = request.form.get('phone', '').strip()
             country_code = request.form.get('country_code', '+63')
+            
             errors = []
             if not validate_name(name):
                 errors.append("Name must be 2-50 characters (letters, spaces, hyphens, apostrophes).")
@@ -41,13 +39,15 @@ def book():
                 errors.append("Email already registered. Please log in or use another email.")
             if phone and not validate_phone(phone):
                 errors.append("Phone must be exactly 11 digits.")
+            
             if errors:
                 for err in errors:
                     flash(err, 'danger')
                 rooms = Room.query.filter_by(status='available').all()
                 return render_template('booking/book.html', rooms=rooms, guest_mode=True,
                                      name=name, email=email, phone=phone, country_code=country_code)
-            # Create guest user with an empty password (cannot log in later)
+            
+            # Create guest user
             hashed_pw = generate_password_hash('')
             new_user = User(
                 name=name,
@@ -59,13 +59,12 @@ def book():
             )
             db.session.add(new_user)
             db.session.commit()
-            # Log the guest in automatically
             login_user(new_user)
             user_id = new_user.id
         else:
             user_id = current_user.id
 
-        # Common booking creation
+        # Booking details
         room_id = request.form['room_id']
         check_in = datetime.strptime(request.form['check_in'], '%Y-%m-%d').date()
         check_out = datetime.strptime(request.form['check_out'], '%Y-%m-%d').date()
@@ -76,7 +75,7 @@ def book():
             flash('Room not available', 'danger')
             return redirect(url_for('bookings.book'))
 
-        # Check date overlap with confirmed bookings
+        # Check for overlapping confirmed bookings
         existing = Booking.query.filter_by(room_id=room_id, status='confirmed').filter(
             Booking.check_in < check_out, Booking.check_out > check_in
         ).first()
@@ -92,7 +91,6 @@ def book():
         base_price = room.room_type.base_price
         total = base_price * nights
 
-        # Apply coupon if valid
         if coupon_code:
             coupon = Coupon.query.filter_by(code=coupon_code, is_active=True).first()
             if coupon and coupon.valid_until >= datetime.now().date():
@@ -101,11 +99,7 @@ def book():
             else:
                 flash('Invalid or expired coupon', 'warning')
                 rooms = Room.query.filter_by(status='available').all()
-                return render_template('booking/book.html', rooms=rooms, guest_mode=is_guest,
-                                     name=name if is_guest else None,
-                                     email=email if is_guest else None,
-                                     phone=phone if is_guest else None,
-                                     country_code=country_code if is_guest else None)
+                return render_template('booking/book.html', rooms=rooms, guest_mode=is_guest)
 
         booking = Booking(
             user_id=user_id,
@@ -122,7 +116,7 @@ def book():
         flash('Booking created! Proceed to payment.', 'success')
         return redirect(url_for('payments.pay', booking_id=booking.id))
 
-    # GET – show booking form
+    # GET request
     rooms = Room.query.filter_by(status='available').all()
     guest_mode = not current_user.is_authenticated
     response = make_response(render_template('booking/book.html', rooms=rooms, guest_mode=guest_mode))
@@ -132,7 +126,7 @@ def book():
     return response
 
 
-# -------------------- CALENDAR (public) --------------------
+# -------------------- CALENDAR --------------------
 @bp.route('/calendar')
 def calendar():
     return render_template('booking/calendar.html')
@@ -166,7 +160,7 @@ def calendar_data():
     return jsonify(events)
 
 
-# -------------------- USER BOOKING VERIFICATION / CANCELLATION --------------------
+# -------------------- USER ACTIONS --------------------
 @bp.route('/verify/<int:booking_id>')
 @login_required
 def verify(booking_id):
@@ -174,6 +168,7 @@ def verify(booking_id):
     if booking.user_id != current_user.id and current_user.role != 'admin':
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
+    
     if booking.payment and booking.payment.status == 'completed':
         flash('Payment completed. Awaiting admin approval.', 'info')
     else:
@@ -188,6 +183,7 @@ def cancel(booking_id):
     if booking.user_id != current_user.id and current_user.role != 'admin':
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
+    
     if booking.status == 'cancelled':
         flash('Already cancelled', 'info')
     else:
@@ -214,6 +210,7 @@ def verify_bookings():
     if current_user.role != 'admin':
         flash('Access denied', 'danger')
         return redirect(url_for('index'))
+    
     bookings = Booking.query.filter_by(status='pending').order_by(Booking.created_at.desc()).all()
     for booking in bookings:
         booking.payment_status = 'completed' if (booking.payment and booking.payment.status == 'completed') else 'pending'
@@ -225,10 +222,12 @@ def verify_bookings():
 def admin_confirm_booking(booking_id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+    
     booking = Booking.query.get_or_404(booking_id)
     if booking.status != 'pending':
         flash('Booking is not pending', 'warning')
         return redirect(url_for('bookings.verify_bookings'))
+    
     if not booking.payment or booking.payment.status != 'completed':
         flash('Payment not completed yet. Cannot confirm booking.', 'danger')
         return redirect(url_for('bookings.verify_bookings'))
@@ -236,11 +235,11 @@ def admin_confirm_booking(booking_id):
     booking.status = 'confirmed'
     db.session.commit()
     booking.room.update_status()
-
+    
+    # Generate receipt (no email sent)
     receipt = generate_receipt(booking.id)
-    send_receipt_email(booking.user.email, booking, receipt)
-
-    flash(f'Booking #{booking.id} has been confirmed. Receipt sent to user.', 'success')
+    
+    flash(f'Booking #{booking.id} has been confirmed. Receipt generated.', 'success')
     return redirect(url_for('bookings.verify_bookings'))
 
 
@@ -249,10 +248,12 @@ def admin_confirm_booking(booking_id):
 def admin_cancel_booking(booking_id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+    
     booking = Booking.query.get_or_404(booking_id)
     if booking.status != 'pending':
         flash('Booking is not pending', 'warning')
         return redirect(url_for('bookings.verify_bookings'))
+    
     booking.status = 'cancelled'
     db.session.commit()
     booking.room.update_status()
@@ -260,6 +261,7 @@ def admin_cancel_booking(booking_id):
     return redirect(url_for('bookings.verify_bookings'))
 
 
+# -------------------- UTILITIES --------------------
 @bp.route('/test-rooms')
 @login_required
 def test_rooms():
