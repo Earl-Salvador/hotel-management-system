@@ -1,12 +1,30 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container text-center mt-5">
-    <div class="alert alert-success">
-        <h2>Payment Successful!</h2>
-        <p>Your booking (ID: {{ booking.id }}) is now confirmed.</p>
-        <p>We've sent a confirmation email to {{ booking.user.email }}.</p>
-        <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary">Go to Dashboard</a>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-lg border-0 rounded-4">
+                <div class="card-header bg-success text-white py-3 rounded-top-4">
+                    <h3 class="mb-0 fw-bold text-center"><i class="fas fa-check-circle me-2"></i> Payment Successful!</h3>
+                </div>
+                <div class="card-body p-4 text-center">
+                    <i class="fas fa-receipt fa-4x mb-3 text-success"></i>
+                    <h4>Thank you for your payment!</h4>
+                    <p>Your booking (ID: {{ booking.id }}) is now pending admin approval.</p>
+                    <p>You will receive a confirmation email once your booking is approved by the admin.</p>
+                    <hr>
+                    <div class="mt-4">
+                        <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary rounded-pill px-4">
+                            Go to Dashboard
+                        </a>
+                        <a href="{{ url_for('bookings.view_receipt', booking_id=booking.id) }}" class="btn btn-outline-success rounded-pill px-4">
+                            View Receipt
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
