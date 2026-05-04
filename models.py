@@ -140,9 +140,10 @@ class Coupon(db.Model):
     __tablename__ = 'coupons'
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False)
-    discount_percent = db.Column(db.Numeric(5,2))
-    valid_until = db.Column(db.Date)
+    discount_percent = db.Column(db.Numeric(5,2), nullable=False)
+    valid_until = db.Column(db.Date, nullable=False)
     is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Receipt(db.Model):
     __tablename__ = 'receipts'

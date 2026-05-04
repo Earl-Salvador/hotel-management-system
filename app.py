@@ -8,6 +8,7 @@ from mail_config import mail
 from models import db, User, Room, Booking, Payment, Comment
 from datetime import datetime
 from controllers import comments
+from controllers import coupons
 
 
 
@@ -39,7 +40,7 @@ app.register_blueprint(reports.bp)
 app.register_blueprint(analytics.bp)
 app.register_blueprint(payments.bp)
 app.register_blueprint(dashboard.bp)
-
+app.register_blueprint(coupons.bp)
 
 # -------------------- HOMEPAGE --------------------
 @app.route('/')

@@ -80,8 +80,8 @@ def register():
             errors.append("Password must be at least 8 characters with one uppercase, one lowercase, and one number.")
         if password != confirm:
             errors.append("Passwords do not match.")
-        if not phone or not phone.isdigit() or len(phone) != 11:
-            errors.append("Phone must be exactly 11 digits.")
+        # Phone validation removed - phone is now optional
+        # No validation for phone number
 
         if errors:
             for err in errors:
@@ -97,7 +97,7 @@ def register():
             'full_name': full_name,
             'email': email,
             'password_hash': generate_password_hash(password),
-            'phone': phone
+            'phone': phone if phone else None  # Allow empty phone
         }
 
         # Send verification email
@@ -116,36 +116,52 @@ def register():
     return render_template('register.html')
 
 # -------------------- EMAIL VERIFICATION --------------------
+# Sa auth.py, i-update ang verify_email route:
+
 @bp.route('/verify-email/<token>')
 def verify_email(token):
-    verification = EmailVerification.query.filter_by(token=token).first()
+    from utils.email_utils import confirm_verification_token
     
-    if not verification or verification.is_expired():
-        flash('The verification link is invalid or has expired.', 'danger')
+    email = confirm_verification_token(token)
+    
+    if not email:
+        flash('The verification link is invalid or has expired. Please register again.', 'danger')
         return redirect(url_for('auth.register'))
     
     reg_data = session.get('reg_data')
-    if not reg_data or reg_data.get('email') != verification.email:
+    if not reg_data or reg_data.get('email') != email:
         flash('Registration session expired. Please register again.', 'danger')
         return redirect(url_for('auth.register'))
     
-    # Create user
+    # Check if user already exists
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        flash('Email already registered. Please login.', 'info')
+        session.pop('reg_data', None)
+        return redirect(url_for('auth.login'))
+    
+    # Create user - ALISIN MUNA ANG is_verified
     user = User(
         name=reg_data['full_name'],
-        email=verification.email,
+        email=email,
         password=reg_data['password_hash'],
-        phone=reg_data['phone'],
+        phone=reg_data.get('phone'),
         role='guest'
+        # is_verified = True  # I-REMOVE MUNA ITO
     )
     db.session.add(user)
-    db.session.delete(verification)
     db.session.commit()
     
     session.pop('reg_data', None)
     login_user(user)
     flash('Email verified! Registration successful. Welcome to ROOMIO!', 'success')
     
-    return redirect(url_for('dashboard.guest_dashboard'))
+    if user.role == 'admin':
+        return redirect(url_for('dashboard.admin_dashboard'))
+    elif user.role == 'staff':
+        return redirect(url_for('dashboard.staff_dashboard'))
+    else:
+        return redirect(url_for('dashboard.guest_dashboard'))
 
 @bp.route('/verify-email-page')
 def verify_email_page():
