@@ -56,15 +56,12 @@
                         </div>
                     </div>
 
-                    <!-- Phone field – Philippines only, +63 prefix fixed -->
+                    <!-- Simplified Phone Field -->
                     <div class="mb-4">
                         <label for="phone" class="form-label small fw-bold" style="color: var(--sidebar-green);">Phone Number</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light text-muted">+63</span>
-                            <input type="tel" class="form-control bg-light" id="phone" name="phone" value="{{ phone }}" placeholder="9123456789" required>
-                        </div>
+                        <input type="tel" class="form-control bg-light" id="phone" name="phone" value="{{ phone }}" placeholder="09123456789" required>
                         <div class="invalid-feedback" id="phone-feedback"></div>
-                        <small class="text-muted" style="font-size: 0.75rem;">Exactly 10 digits (no +63 prefix). No more than 3 identical digits in a row.</small>
+                        <small class="text-muted" style="font-size: 0.75rem;">Enter your 11-digit mobile number.</small>
                     </div>
 
                     <button type="submit" class="btn btn-custom-go w-100 py-2 mb-3 shadow-sm">
@@ -86,17 +83,7 @@
 const nameRegex = /^[A-Za-z\s'-]{2,50}$/;
 const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-const phoneDigitsRegex = /^\d{10}$/;
-
-function hasTooManyConsecutiveDigits(str) {
-    const digits = str.replace(/\D/g, '');
-    for (let i = 0; i <= digits.length - 4; i++) {
-        if (digits[i] === digits[i+1] && digits[i] === digits[i+2] && digits[i] === digits[i+3]) {
-            return true;
-        }
-    }
-    return false;
-}
+const phoneRegex = /^\d{11}$/;
 
 function setFieldValidity(element, isValid, message, feedbackId) {
     const feedback = document.getElementById(feedbackId);
@@ -165,8 +152,7 @@ function validatePhone() {
     const input = document.getElementById('phone');
     const raw = input.value.trim();
     if (!raw) return setFieldValidity(input, false, 'Phone number is required.', 'phone-feedback');
-    if (!phoneDigitsRegex.test(raw)) return setFieldValidity(input, false, 'Phone must be exactly 10 digits.', 'phone-feedback');
-    if (hasTooManyConsecutiveDigits(raw)) return setFieldValidity(input, false, 'Phone cannot contain more than three identical digits in a row.', 'phone-feedback');
+    if (!phoneRegex.test(raw)) return setFieldValidity(input, false, 'Phone must be exactly 11 digits.', 'phone-feedback');
     return setFieldValidity(input, true, '', 'phone-feedback');
 }
 

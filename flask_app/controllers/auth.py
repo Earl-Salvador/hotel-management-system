@@ -58,8 +58,7 @@ def login():
             flash('Invalid credentials', 'danger')
     return render_template('login.html')
 
-# -------------------- REGISTRATION (Philippines only) --------------------
-# -------------------- REGISTRATION (Philippines only) --------------------
+# -------------------- REGISTRATION (Simplified - No Country Code) --------------------
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -87,34 +86,15 @@ def register():
         if password != confirm:
             errors.append("Passwords do not match.")
 
-        # Phone number validation (Philippines only)
-        if not raw_phone.isdigit() or len(raw_phone) != 10:
-            errors.append("Phone must be exactly 10 digits.")
-        else:
-            full_phone = f"+63{raw_phone}"
-            if has_consecutive_digits(raw_phone):
-                errors.append("Phone number cannot contain more than three identical digits in a row.")
-            if User.query.filter_by(phone=full_phone).first():
-                errors.append("Phone number already registered.")
-
-        # Sa auth.py, sa register function, idagdag:
-        country_code = request.form.get('country_code', '+63')
-
-        # At sa phone validation:
-        if country_code == '+63':
-            if not raw_phone.isdigit() or len(raw_phone) != 10:
-                errors.append("Phone must be exactly 10 digits.")
-            else:
-                full_phone = f"+63{raw_phone}"
-                # ... rest of validation
-        else:
-            # For other countries, accept any digits
-            if not raw_phone.isdigit():
-                errors.append("Phone must contain only digits.")
-            else:
-                full_phone = f"{country_code}{raw_phone}"
-
-        # WALA NG COUNTRY CODE VALIDATION
+        # Phone number validation (simplified - 11 digits)
+        if not raw_phone:
+            errors.append("Phone number is required.")
+        elif not raw_phone.isdigit():
+            errors.append("Phone number must contain only digits.")
+        elif len(raw_phone) != 11:
+            errors.append("Phone number must be exactly 11 digits.")
+        elif User.query.filter_by(phone=raw_phone).first():
+            errors.append("Phone number already registered.")
 
         if errors:
             for err in errors:
@@ -128,8 +108,8 @@ def register():
             name=full_name,
             email=email,
             password=generate_password_hash(password),
-            country_code="+63",
-            phone=full_phone,
+            country_code='+63',
+            phone=raw_phone,
             role='guest'
         )
         db.session.add(user)

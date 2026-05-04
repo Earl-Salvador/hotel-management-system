@@ -1,23 +1,19 @@
 import os
 
 class Config:
-    # Flask Core
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-12345')
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
     
-    # Database Configuration - Aiven MySQL
-    # Get the full connection string from Aiven dashboard
-    # Format: mysql+pymysql://USER:PASSWORD@HOST:PORT/DATABASE?charset=utf8mb4
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'mysql+pymysql://avnadmin:AVNS_ZWOExSxvktrGoscBW4M@mysql-2f4eacb9-salvadorearl8-09a8.l.aivencloud.com:10310/defaultdb?charset=utf8mb4'
+    # Aiven MySQL Connection
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
-    # SSL Configuration for Aiven MySQL
-    # Using the absolute path to ca.pem file (download from Aiven dashboard)
-    ca_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ca.pem')
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'connect_args': {
-            'ssl': {'ca': ca_path}
+    # SSL Configuration para sa Aiven (kailangan ito!)
+    if SQLALCHEMY_DATABASE_URI and 'aivencloud.com' in SQLALCHEMY_DATABASE_URI:
+        SQLALCHEMY_ENGINE_OPTIONS = {
+            'connect_args': {
+                'ssl': {'ca': 'ca.pem'}
+            }
         }
-    }
     
     # Email Configuration
     MAIL_SERVER = 'smtp.gmail.com'
