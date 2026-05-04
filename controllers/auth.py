@@ -148,16 +148,17 @@ def register():
         }
 
         # Send OTP verification email
+ # Send verification email
         try:
             send_verification_email(email)
-            flash('Verification code sent to your email. Please enter it to complete registration.', 'info')
+            flash('Verification link sent to your email. Please check your inbox.', 'info')
             return redirect(url_for('auth.verify_email'))
         except Exception as e:
             print(f"Error sending email: {e}")
-            flash('Error sending verification email. Please try again.', 'danger')
+            flash('Unable to send verification email. Please check your email address or try again later.', 'danger')
             return render_template('register.html',
-                                   first_name=first_name, last_name=last_name,
-                                   email=email, phone=raw_phone, country_code=country_code)
+                                first_name=first_name, last_name=last_name,
+                                email=email, phone=raw_phone, country_code=country_code)
 
     return render_template('register.html')
 

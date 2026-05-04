@@ -2,60 +2,49 @@ import random
 import string
 from flask_mail import Message
 from flask import url_for
-from models import db, EmailVerification
 from mail_config import mail
 
-def send_verification_email(email, token):
+def send_verification_email(email):
     """Send email verification link."""
-    verify_url = url_for('auth.verify_email', token=token, _external=True)
-    msg = Message('Verify Your Email', recipients=[email])
-    msg.body = f"""
-    Hello,
+    try:
+        msg = Message('Verify Your Email', recipients=[email])
+        msg.body = f"""
+        Hello,
 
-    Thank you for registering! Please click the link below to verify your email address:
+        Thank you for registering with ROOMIO!
 
-    {verify_url}
+        Your registration is almost complete. Please use the link below to verify your email:
 
-    This link will expire in 24 hours.
+        Please login to your account using your email and password.
 
-    If you did not register, please ignore this email.
-    """
-    mail.send(msg)
+        Thank you for choosing us!
+        """
+        mail.send(msg)
+        print(f"Verification email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
 
 def send_password_reset_email(email, token):
     """Send password reset link."""
-    reset_url = url_for('auth.reset_password', token=token, _external=True)
-    msg = Message('Password Reset Request', recipients=[email])
-    msg.body = f"""
-    Hello,
+    try:
+        reset_url = url_for('auth.reset_password', token=token, _external=True)
+        msg = Message('Password Reset Request', recipients=[email])
+        msg.body = f"""
+        Hello,
 
-    You requested to reset your password. Click the link below to set a new password:
+        You requested to reset your password. Click the link below:
 
-    {reset_url}
+        {reset_url}
 
-    This link will expire in 1 hour.
+        This link expires in 1 hour.
 
-    If you did not request this, please ignore this email.
-    """
-    mail.send(msg)
-
-def send_receipt_email(to_email, booking, receipt):
-    """Send receipt email to user."""
-    receipt_url = url_for('bookings.view_receipt', booking_id=booking.id, _external=True)
-    msg = Message('Booking Receipt', recipients=[to_email])
-    msg.body = f"""
-    Hello {booking.user.name},
-
-    Your booking has been confirmed!
-
-    Booking ID: {booking.id}
-    Room: {booking.room.room_number}
-    Check-in: {booking.check_in}
-    Check-out: {booking.check_out}
-    Total: ₱{booking.total_amount}
-
-    View your receipt here: {receipt_url}
-
-    Thank you for choosing us!
-    """
-    mail.send(msg)
+        If you did not request this, please ignore this email.
+        """
+        mail.send(msg)
+        print(f"Password reset email sent to {email}")
+        return True
+    except Exception as e:
+        print(f"Error sending reset email: {e}")
+        return False
