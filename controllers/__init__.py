@@ -1,1 +1,1 @@
-# Controllers package
+from . import auth, bookings, rooms, amenities, users, comments, reports, analytics, payments, dashboard, coupons
