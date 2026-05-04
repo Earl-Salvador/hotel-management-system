@@ -85,6 +85,18 @@ def index():
                          pending_bookings=pending_bookings,
                          approved_comments=approved_comments)
 
+@app.route('/test-email')
+def test_email():
+    from flask_mail import Message
+    from mail_config import mail
+    try:
+        msg = Message('Test Email', recipients=['your_test_email@gmail.com'])
+        msg.body = 'This is a test email from ROOMIO.'
+        mail.send(msg)
+        return 'Email sent successfully!'
+    except Exception as e:
+        return f'Error: {str(e)}'
+
 # -------------------- MAIN --------------------
 if __name__ == '__main__':
     with app.app_context():
