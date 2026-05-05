@@ -69,20 +69,43 @@
                             {{ room.status|capitalize }}
                           </span>
                         </td>
-                        <td>
+                        <td class="text-center">
                           <button class="btn btn-sm btn-warning edit-room" 
                                   data-room-id="{{ room.id }}" 
                                   data-room-number="{{ room.room_number }}" 
                                   data-room-status="{{ room.status }}"><i class="fas fa-edit"></i></button>
-                          <button class="btn btn-sm btn-danger delete-room" data-room-id="{{ room.id }}"><i class="fas fa-trash"></i></button>
-                         </td>
+                          
+                          <!-- Maintenance button (only for available rooms) -->
+                          {% if room.status == 'available' %}
+                            <button class="btn btn-sm btn-secondary maintenance-room" 
+                                    data-room-id="{{ room.id }}" 
+                                    data-room-number="{{ room.room_number }}"
+                                    title="Set Maintenance"><i class="fas fa-tools"></i></button>
+                          {% endif %}
+                          
+                          <!-- Set Available button (only for maintenance rooms) -->
+                          {% if room.status == 'maintenance' %}
+                            <button class="btn btn-sm btn-success set-available" 
+                                    data-room-id="{{ room.id }}"
+                                    data-room-number="{{ room.room_number }}"
+                                    title="Set Available"><i class="fas fa-check-circle"></i></button>
+                          {% endif %}
+                          
+                          <!-- Force Checkout button (only for booked rooms) -->
+                          {% if room.status == 'booked' %}
+                            <button class="btn btn-sm btn-info force-checkout" 
+                                    data-room-id="{{ room.id }}"
+                                    data-room-number="{{ room.room_number }}"
+                                    title="Force Checkout"><i class="fas fa-sign-out-alt"></i></button>
+                          {% endif %}
+                        </td>
                       </tr>
                       {% endfor %}
                     </tbody>
                   </table>
                 </div>
-               </td>
-             </tr>
+                ‰
+              <tr>
             {% endfor %}
           </tbody>
         </table>
@@ -91,7 +114,7 @@
   </div>
 </div>
 
-<!-- Room Type Modal (text fields only) -->
+<!-- Room Type Modal -->
 <div class="modal fade" id="roomTypeModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content rounded-4">
@@ -130,7 +153,7 @@
           <div class="mb-3">
             <label class="form-label">Select Image (PNG, JPG, JPEG, GIF)</label>
             <input type="file" class="form-control" name="image" accept="image/*" required>
-            <small class="text-muted">Recommended size: 400x250px. The image will be publicly visible.</small>
+            <small class="text-muted">Recommended size: 400x250px.</small>
           </div>
           <button type="submit" class="btn btn-primary w-100">Upload</button>
         </form>
@@ -182,7 +205,7 @@
     document.getElementById('roomTypeModalTitle').innerText = 'Add Room Type';
   }
 
-  // Save room type (JSON)
+  // Save room type
   document.getElementById('saveRoomTypeBtn').onclick = () => {
     const id = document.getElementById('roomTypeId').value;
     const data = {
@@ -208,7 +231,7 @@
     });
   };
 
-  // Edit room type (load JSON)
+  // Edit room type
   document.querySelectorAll('.edit-room-type').forEach(btn => {
     btn.onclick = () => {
       const id = btn.dataset.id;
@@ -271,7 +294,7 @@
       } else {
         Swal.fire('Error', data.error || 'Upload failed', 'error');
       }
-    }).catch(err => Swal.fire('Error', 'Network error', 'error'));
+    });
   };
 
   // ========== Room Management ==========
@@ -309,26 +332,86 @@
     };
   });
 
-  // Delete room button
-  document.querySelectorAll('.delete-room').forEach(btn => {
+  // Maintenance mode (set to maintenance)
+  document.querySelectorAll('.maintenance-room').forEach(btn => {
     btn.onclick = () => {
       const roomId = btn.dataset.roomId;
+      const roomNumber = btn.dataset.roomNumber;
       Swal.fire({
-        title: 'Confirm Delete',
-        text: 'This room will be removed permanently.',
+        title: `Set Room ${roomNumber} to Maintenance?`,
+        text: 'This room will be marked as maintenance and unavailable for booking.',
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonText: 'Delete'
+        confirmButtonText: 'Yes, set maintenance',
+        cancelButtonText: 'Cancel'
       }).then(result => {
         if (result.isConfirmed) {
-          fetch(`/admin/rooms/rooms/${roomId}`, { method: 'DELETE' })
+          fetch(`/admin/rooms/rooms/${roomId}/maintenance`, { method: 'POST' })
             .then(res => res.json())
             .then(data => {
-              if (res.ok && data.success) {
+              if (data.success) {
                 refreshPage();
-                Swal.fire('Deleted!', 'Room removed.', 'success');
+                Swal.fire('Success', data.message, 'success');
               } else {
-                Swal.fire('Error', data.error || 'Could not delete room.', 'error');
+                Swal.fire('Error', data.error, 'error');
+              }
+            });
+        }
+      });
+    };
+  });
+
+  // Set Available (from maintenance back to available)
+  document.querySelectorAll('.set-available').forEach(btn => {
+    btn.onclick = () => {
+      const roomId = btn.dataset.roomId;
+      const roomNumber = btn.dataset.roomNumber;
+      Swal.fire({
+        title: `Set Room ${roomNumber} to Available?`,
+        text: 'This room will become available for booking again.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, set available',
+        cancelButtonText: 'Cancel'
+      }).then(result => {
+        if (result.isConfirmed) {
+          fetch(`/admin/rooms/rooms/${roomId}/set-available`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                refreshPage();
+                Swal.fire('Success', data.message, 'success');
+              } else {
+                Swal.fire('Error', data.error, 'error');
+              }
+            });
+        }
+      });
+    };
+  });
+
+  // Force Checkout
+  document.querySelectorAll('.force-checkout').forEach(btn => {
+    btn.onclick = () => {
+      const roomId = btn.dataset.roomId;
+      const roomNumber = btn.dataset.roomNumber;
+      Swal.fire({
+        title: `Force Checkout Room ${roomNumber}?`,
+        text: 'This will end the current booking and make the room available.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, force checkout',
+        cancelButtonText: 'Cancel'
+      }).then(result => {
+        if (result.isConfirmed) {
+          fetch(`/admin/rooms/rooms/${roomId}/force-checkout`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                refreshPage();
+                Swal.fire('Success', data.message, 'success');
+              } else {
+                Swal.fire('Error', data.error, 'error');
               }
             });
         }
