@@ -188,13 +188,26 @@ def cancel(booking_id):
     if booking.user_id != current_user.id and current_user.role != 'admin':
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
+    
     if booking.status == 'cancelled':
         flash('Already cancelled', 'info')
     else:
         booking.status = 'cancelled'
         db.session.commit()
         booking.room.update_status()
-        flash('Booking cancelled', 'success')
+        
+        # Send cancellation email to user (if they cancelled themselves)
+        if current_user.id == booking.user_id:
+            try:
+                from utils.email_utils import send_cancellation_email
+                send_cancellation_email(booking)
+                flash('Booking cancelled. A confirmation email has been sent.', 'success')
+            except Exception as e:
+                print(f"Error sending cancellation email: {e}")
+                flash('Booking cancelled. (Email notification failed)', 'warning')
+        else:
+            flash('Booking cancelled', 'success')
+    
     return redirect(url_for('dashboard.index'))
 
 
@@ -249,14 +262,28 @@ def admin_confirm_booking(booking_id):
 def admin_cancel_booking(booking_id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+    
     booking = Booking.query.get_or_404(booking_id)
     if booking.status != 'pending':
         flash('Booking is not pending', 'warning')
         return redirect(url_for('bookings.verify_bookings'))
+    
+    # Store user email before cancelling
+    user_email = booking.user.email
+    
     booking.status = 'cancelled'
     db.session.commit()
     booking.room.update_status()
-    flash(f'Booking #{booking.id} has been cancelled.', 'success')
+    
+    # Send cancellation email to user
+    try:
+        from utils.email_utils import send_cancellation_email
+        send_cancellation_email(booking)
+        flash(f'Booking #{booking.id} has been cancelled. Notification email sent to user.', 'success')
+    except Exception as e:
+        print(f"Error sending cancellation email: {e}")
+        flash(f'Booking #{booking.id} has been cancelled. (Email notification failed)', 'warning')
+    
     return redirect(url_for('bookings.verify_bookings'))
 
 

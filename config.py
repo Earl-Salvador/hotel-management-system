@@ -1,7 +1,7 @@
 import os
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key')
+    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-12345')
     
     # Aiven MySQL Connection
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
@@ -15,16 +15,17 @@ class Config:
             }
         }
     
-      # Email Configuration - GMAIL SMTP
+    # Email Configuration - GMAIL SMTP
     MAIL_SERVER = 'smtp.gmail.com'
     MAIL_PORT = 587
     MAIL_USE_TLS = True
     MAIL_USE_SSL = False
     MAIL_USERNAME = os.environ.get('MAIL_USERNAME', 'salvadorearl8@gmail.com')
-    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'vrvczfhnxmimnwmu')  # Ilagay ang App Password dito
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'vrvczfhnxmimnwmu')
     MAIL_DEFAULT_SENDER = os.environ.get('MAIL_USERNAME', 'salvadorearl8@gmail.com')
     
     # PayMongo Configuration
     PAYMONGO_SECRET_KEY = os.environ.get('PAYMONGO_SECRET_KEY', '')
-    PAYMONGO_PUBLIC_KEY = os.environ.get('PAYMONGO_PUBLIC_KEY', '')
-    PAYMONGO_WEBHOOK_SECRET = os.environ.get('PAYMONGO_WEBHOOK_SECRET', '')
+    print(f"PayMongo Secret Key loaded: {PAYMONGO_SECRET_KEY[:10]}...") 
+    PAYMONGO_PUBLIC_KEY = os.environ.get('PAYMONGO_PUBLIC_KEY', 'pk_test_zxNuyHVqVj2noHUscYVBAmAC')
+    PAYMONGO_WEBHOOK_SECRET = os.environ.get('PAYMONGO_WEBHOOK_SECRET', 'whsk_oNazyYEaS74vFj78BewoJQw1')

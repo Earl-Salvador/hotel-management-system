@@ -28,18 +28,19 @@
                         <div class="invalid-feedback" id="password-feedback"></div>
                     </div>
 
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="remember" name="remember">
-                        <label class="form-check-label small" for="remember">Remember me</label>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="remember" name="remember">
+                            <label class="form-check-label small" for="remember">Remember me</label>
+                        </div>
+                        <div>
+                            <a href="{{ url_for('auth.forgot_password') }}" class="small text-muted text-decoration-none">Forgot Password?</a>
+                        </div>
                     </div>
 
                     <button type="submit" class="btn btn-custom-go w-100 py-2 mb-3 shadow-sm">
                         Sign In <i class="fas fa-sign-in-alt ms-2"></i>
                     </button>
-
-                    <div class="text-center">
-                        <a href="#" class="small text-muted text-decoration-none" onclick="alert('Password reset feature coming soon! Please contact admin.')">Forgot Password?</a>
-                    </div>
 
                     <p class="mb-0 text-center small text-muted mt-3">
                         Don't have an account? 
@@ -87,7 +88,9 @@ function validatePassword() {
 }
 
 document.getElementById('email').addEventListener('input', validateEmail);
+document.getElementById('email').addEventListener('blur', validateEmail);
 document.getElementById('password').addEventListener('input', validatePassword);
+document.getElementById('password').addEventListener('blur', validatePassword);
 
 document.getElementById('togglePassword').addEventListener('click', function() {
     const pwd = document.getElementById('password');

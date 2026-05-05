@@ -191,6 +191,7 @@ def logout():
     return redirect(url_for('index'))
 
 # -------------------- PASSWORD RESET --------------------
+# -------------------- PASSWORD RESET --------------------
 @bp.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
@@ -202,12 +203,18 @@ def forgot_password():
 
         user = User.query.filter_by(email=email).first()
         
+        # For security, don't reveal if email exists
         if not user:
             flash('If that email is registered, you will receive a reset link.', 'info')
             return redirect(url_for('auth.login'))
 
+        # Generate unique token
         token = secrets.token_urlsafe(32)
+        
+        # Delete any existing reset tokens for this email
         PasswordReset.query.filter_by(email=email).delete()
+        
+        # Save new token
         db.session.add(PasswordReset(email=email, token=token))
         db.session.commit()
 
@@ -222,10 +229,13 @@ def forgot_password():
 
     return render_template('forgot_pass.html')
 
+
 @bp.route('/reset-password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
+    """Verify token and allow user to set new password."""
     reset = PasswordReset.query.filter_by(token=token).first()
     
+    # Check if token exists and is not expired
     if not reset or reset.is_expired():
         flash('The password reset link is invalid or has expired.', 'danger')
         return redirect(url_for('auth.forgot_password'))
@@ -245,15 +255,27 @@ def reset_password(token):
                 flash(err, 'danger')
             return render_template('reset_password.html', token=token)
 
+        # Update user's password
         user = User.query.filter_by(email=reset.email).first()
         if user:
             user.password = generate_password_hash(password)
             db.session.commit()
+            
+            # Delete the used token
             db.session.delete(reset)
             db.session.commit()
+            
+            # Auto-login after password reset
             login_user(user)
             flash('Your password has been updated. You are now logged in!', 'success')
-            return redirect(url_for('dashboard.guest_dashboard'))
+            
+            # Redirect to appropriate dashboard
+            if user.role == 'admin':
+                return redirect(url_for('dashboard.admin_dashboard'))
+            elif user.role == 'staff':
+                return redirect(url_for('dashboard.staff_dashboard'))
+            else:
+                return redirect(url_for('dashboard.guest_dashboard'))
         else:
             flash('User not found. Please contact support.', 'danger')
             return redirect(url_for('auth.forgot_password'))
